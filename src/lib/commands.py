@@ -15,6 +15,7 @@ _filament = {'filament': ('E', __hide__)}
 
 commands_mapping = {}
 
+
 class CommandMetaclass(type):
     def __new__(cls, name, bases, attrs):
         result: Type[BaseCommand] = type.__new__(cls, name, bases, attrs)  # type: ignore
@@ -27,10 +28,11 @@ class CommandMetaclass(type):
 class BaseCommand(metaclass=CommandMetaclass):
     command: str
     params: dict = {}
-    comment: None
+    comment: Optional[str] = None
 
     def __init__(self, *, comment: Optional[str] = None, **kwargs):
-        self.comment = comment
+        if comment is not None:
+            self.comment = comment
         invalid_args = set(kwargs.keys()) - set(self.params.keys())
         if invalid_args:
             raise ValueError(f'Invalid arguments: {", ".join(list(invalid_args))}')
@@ -78,6 +80,28 @@ class BaseCommand(metaclass=CommandMetaclass):
         return cls(**kwargs)
 
 
+class RawCommand(BaseCommand):
+    def __init__(self, *, raw_command: str):
+        self.raw_command = raw_command
+
+    def __str__(self):
+        return self.raw_command
+
+    @classmethod
+    def from_string(cls, command: str):
+        return cls(raw_command=command)
+
+class Comment(BaseCommand):
+    def __init__(self, *, comment: str):
+        self.comment = comment
+
+    def __str__(self):
+        return f'; {self.comment}'
+
+    @classmethod
+    def from_string(cls, command: str):
+        return cls(comment=command[command.find(';')+1:].strip())
+
 class CodeBlock:
     def __init__(self, comment: str, commands: list[BaseCommand]):
         self.comment = comment
@@ -110,6 +134,24 @@ class EmptyMove(Move):
         **_speed,
     }
 
+
+class Parking(BaseCommand):
+    command = 'G28'
+    params = {
+        **_x,
+        **_y,
+        **_z,
+    }
+
+class ChangeCords(BaseCommand):
+    command = 'G92'
+    params = {
+        **_x,
+        **_y,
+        **_z,
+        **_filament,
+    }
+
 class Beep(BaseCommand):
     command = 'M300'
     params = {
@@ -128,6 +170,17 @@ class Sleep(BaseCommand):
         'time': ('P', 1000),
     }
 
+
+
+class AbsoluteExtruder(BaseCommand):
+    command = 'M82'
+    comment = 'absolute extrusion'
+
+
+class RelativeExtruder(BaseCommand):
+    command = 'M83'
+    comment = 'relative extrusion'
+
 generic_pause = CodeBlock(
     'pause',
     [
@@ -137,13 +190,17 @@ generic_pause = CodeBlock(
     ]
 )
 
+
 def command_from_string(command: str, strict=False) -> BaseCommand:
     g_command = command.split(' ')[0]
+    if g_command.strip().startswith(';'):
+        return Comment.from_string(g_command)
     command_class = commands_mapping.get(g_command)
     if not command_class:
         msg = f'Unknown command: {command}'
         if strict:
             raise RuntimeError(msg)
         logger.warning(msg)
+        return RawCommand(raw_command=command)
 
     return command_class.from_string(command)
