@@ -20,11 +20,26 @@ def change_filament_script_fabric(
         unload_length: AccurateNumber,
         fasst_load_length: AccurateNumber,
         slow_load_length: AccurateNumber,
-        retract_after_load: AccurateNumber,
-        sleep_duration: int,
+        retract_after_load: Optional[AccurateNumber] = None,
+        prime_filament_before_print: Optional[AccurateNumber] = None,
+        sleep_duration: int = 2000,
 ):
     x, y, z = return_position
-    return CodeBlock('Change Filament',[
+
+    retract_script = []
+    if retract_after_load is not None:
+        retract_script = [
+            Move(filament=retract_after_load *- 1, speed=1500),
+        ]
+
+    prime_filament_script = []
+    if prime_filament_before_print is not None:
+        prime_filament_script = [
+            RelativeExtruder(),
+            Move(filament=retract_after_load, speed=700),
+        ]
+
+    _script = [
         Move(z=z+5, comment='raise Z up'),
         Parking(x=0, comment='parking extruder'),
         generic_pause,
@@ -39,15 +54,19 @@ def change_filament_script_fabric(
 
         RelativeExtruder(),
         Move(filament=slow_load_length, speed=100, comment='slow load filament'),
-        Move(filament=retract_after_load *- 1, speed=1500),
+        *retract_script,
         generic_pause,
 
         # Reset to existing position
+        EmptyMove(x=x, y=y, speed=3000, comment='restore extruder x y position'),
+        EmptyMove(z=z, speed=3000, comment='restore extruder z position'),
+
+        *prime_filament_script,
         AbsoluteExtruder(),
         ChangeCords(filament=return_filament, comment='restore filament position'),
         ChangeCords(filament=return_filament, comment='restore filament position'),
-        EmptyMove(x=x, y=y, z=z, speed=3000, comment='restore extruder position'),
-    ])
+    ]
+    return CodeBlock('Change Filament', _script)
 
 
 class FilamentChange:
@@ -57,7 +76,8 @@ class FilamentChange:
     unload_length = 70
     fasst_load_length = 30
     slow_load_length = 40
-    retract_after_load = 5
+    retract_after_load = 7
+    prime_filament_before_print = 5
     sleep_duration = 2000
 
     def __init__(self, file_path: str, layer_number: int):
@@ -94,6 +114,7 @@ class FilamentChange:
             fasst_load_length=self.fasst_load_length,
             slow_load_length=self.slow_load_length,
             retract_after_load=self.retract_after_load,
+            prime_filament_before_print=self.prime_filament_before_print,
             sleep_duration=self.sleep_duration,
         ).__str__())
         self.buffer.write('\n')
